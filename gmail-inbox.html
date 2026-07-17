@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Inbox</title>
+<style>
+  :root {
+    --bg: #faf6f3;
+    --accent: #c1725d;
+    --accent-soft: #e9c9bf;
+    --text-main: #4a3f3a;
+    --text-muted: #b3a89e;
+    --line: #f0e4de;
+    --unread-dot: #c1725d;
+    --font: 'Helvetica Neue', Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    font-family: var(--font);
+    height: 100%;
+    display: flex;
+  }
+
+  body {
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .widget {
+    width: 100%;
+    max-width: 440px;
+    padding: 28px 30px;
+  }
+
+  .header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+
+  .header .title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .header .count {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .emails {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .email {
+    display: flex;
+    gap: 12px;
+    padding: 13px 0;
+    border-bottom: 1px solid var(--line);
+    cursor: default;
+  }
+
+  .email:last-child {
+    border-bottom: none;
+  }
+
+  .dot-col {
+    flex-shrink: 0;
+    width: 8px;
+    padding-top: 6px;
+  }
+
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--unread-dot);
+  }
+
+  .email-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .email-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .email-from {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .email-from.read {
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+
+  .email-time {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  .email-subject {
+    font-size: 13.5px;
+    color: var(--text-main);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .email-snippet {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 40px 0;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  .empty-state .big {
+    font-size: 28px;
+    margin-bottom: 8px;
+  }
+
+  .status {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 18px;
+  }
+</style>
+</head>
+<body>
+
+<div class="widget">
+  <div class="header">
+    <div class="title">Inbox</div>
+    <div class="count" id="count"></div>
+  </div>
+  <div class="emails" id="emails">
+    <div class="empty-state">Loading inbox…</div>
+  </div>
+  <div class="status" id="status"></div>
+</div>
+
+<script>
+  // ---- CONFIGURE THIS ----
+  // Paste the "Web app URL" from deploying gmail-apps-script.gs
+  const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzpCySqVfar6EvFy96IcWaUy89zbS133_K9TJEqgdBeoBmL2DWqnoP_4AjwWPQKEMk9/exec';
+  // -------------------------
+
+  const emailsEl = document.getElementById('emails');
+  const countEl = document.getElementById('count');
+  const statusEl = document.getElementById('status');
+
+  function extractName(fromStr) {
+    // "Jane Doe <jane@example.com>" -> "Jane Doe"
+    const match = fromStr.match(/^(.*?)</);
+    return match ? match[1].trim().replace(/"/g, '') : fromStr;
+  }
+
+  function formatRelativeTime(dateStr) {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    if (isToday) {
+      return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    }
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  function renderEmails(items) {
+    emailsEl.innerHTML = '';
+
+    if (!items || items.length === 0) {
+      emailsEl.innerHTML = '<div class="empty-state"><div class="big">✦</div>Inbox is clear</div>';
+      countEl.textContent = '';
+      return;
+    }
+
+    const unreadCount = items.filter(i => i.isUnread).length;
+    countEl.textContent = unreadCount > 0 ? unreadCount + ' unread' : 'All read';
+
+    items.forEach((item) => {
+      const row = document.createElement('div');
+      row.className = 'email';
+
+      const dotCol = document.createElement('div');
+      dotCol.className = 'dot-col';
+      if (item.isUnread) {
+        const dot = document.createElement('div');
+        dot.className = 'dot';
+        dotCol.appendChild(dot);
+      }
+
+      const info = document.createElement('div');
+      info.className = 'email-info';
+
+      const top = document.createElement('div');
+      top.className = 'email-top';
+
+      const from = document.createElement('div');
+      from.className = 'email-from' + (item.isUnread ? '' : ' read');
+      from.textContent = extractName(item.from);
+
+      const time = document.createElement('div');
+      time.className = 'email-time';
+      time.textContent = formatRelativeTime(item.date);
+
+      top.appendChild(from);
+      top.appendChild(time);
+
+      const subject = document.createElement('div');
+      subject.className = 'email-subject';
+      subject.textContent = item.subject || '(No subject)';
+
+      const snippet = document.createElement('div');
+      snippet.className = 'email-snippet';
+      snippet.textContent = item.snippet || '';
+
+      info.appendChild(top);
+      info.appendChild(subject);
+      info.appendChild(snippet);
+
+      row.appendChild(dotCol);
+      row.appendChild(info);
+      emailsEl.appendChild(row);
+    });
+  }
+
+  async function loadEmails() {
+    if (APPS_SCRIPT_URL === 'YOUR_GMAIL_APPS_SCRIPT_WEB_APP_URL') {
+      emailsEl.innerHTML = '<div class="empty-state">Add your Apps Script URL<br>in the script to connect</div>';
+      return;
+    }
+
+    try {
+      const res = await fetch(APPS_SCRIPT_URL);
+      if (!res.ok) throw new Error('Request failed (' + res.status + ')');
+      const data = await res.json();
+      renderEmails(data.items);
+      statusEl.textContent = '';
+    } catch (err) {
+      emailsEl.innerHTML = '<div class="empty-state">Couldn\'t load inbox.<br>Check the Apps Script deployment.</div>';
+      statusEl.textContent = err.message;
+    }
+  }
+
+  loadEmails();
+  setInterval(loadEmails, 5 * 60 * 1000); // refresh every 5 min
+</script>
+
+</body>
+</html>
